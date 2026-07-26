@@ -99,7 +99,7 @@ bytes_per_token: 4
 `;
 
 export const EMBEDDED_CATALOG_YAML = `version: 1
-updated: "2026-07-25"
+updated: "2026-07-26"
 classes: [nano, cheap, workhorse, opus-class, frontier]
 models:
   gpt-5.6-luna:
@@ -114,12 +114,14 @@ models:
     in: 0.30
     out: 2.50
     backends: [gemini, cursor, opencode]
+    backend_prices: { opencode: { in: 0.50, out: 3.0, cache_read: 0.05 } }
   haiku-4.5:
     class: cheap
     in: 0.80
     out: 4.0
     cache_read: 0.08
     backends: [claude, opencode]
+    backend_prices: { opencode: { in: 1.0, out: 5.0, cache_read: 0.10 } }
   glm-5.2:
     class: workhorse
     in: 1.40
@@ -157,11 +159,13 @@ models:
     out: 15.0
     cache_read: 0.30
     backends: [claude, cursor, opencode]
+    backend_prices: { opencode: { in: 2.0, out: 10.0, cache_read: 0.20 } }
   gemini-3.1-pro:
     class: opus-class
     in: 2.50
     out: 15.0
     backends: [gemini, cursor, opencode]
+    backend_prices: { opencode: { in: 2.0, out: 12.0, cache_read: 0.20 } }
   opus-4.8-high:
     class: opus-class
     in: 5.0

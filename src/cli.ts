@@ -206,7 +206,9 @@ async function main(): Promise<void> {
   if (parsed.command === "login") {
     const target = parsed.rest.find((r) => !r.startsWith("-"));
     if (!target) {
-      console.error("usage: relay login <cursor|claude|codex|gemini|grok|kimi>");
+      console.error(
+        "usage: relay login <cursor|claude|codex|gemini|grok|kimi|opencode>",
+      );
       process.exit(2);
     }
     const result = await runLogin(target, { stream: true });

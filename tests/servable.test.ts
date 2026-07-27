@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { opencodeCatalogId } from "../src/backends/cli.ts";
 import {
   invalidateServableCache,
@@ -97,12 +97,12 @@ describe("servableModels cache", () => {
     expect(await servableModels("opencode")).toBeNull();
   });
 
-  test("probe failure falls back to a stale cache entry regardless of age", async () => {
+  test("probe failure ignores a stale cache entry and fails open", async () => {
     const { bin, cacheFile } = setup("#!/bin/sh\nexit 1\n");
     writeFileSync(
       cacheFile,
       JSON.stringify({
-        opencode: {
+        [`opencode::${resolve(process.cwd())}`]: {
           binary: bin,
           ts: Date.now() - 48 * 60 * 60 * 1000,
           models: ["opencode/glm-5.2"],
@@ -110,7 +110,80 @@ describe("servableModels cache", () => {
       }),
     );
     const models = await servableModels("opencode", { fresh: true });
-    expect(models).toEqual(new Set(["opencode/glm-5.2"]));
+    expect(models).toBeNull();
+  });
+
+  test("valid JSON with an invalid cache shape never throws", async () => {
+    const { bin, cacheFile } = setup("#!/bin/sh\nexit 1\n");
+    writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        opencode: {
+          binary: bin,
+          ts: Date.now(),
+          models: 42,
+        },
+      }),
+    );
+    expect(await servableModels("opencode")).toBeNull();
+  });
+
+  test("a future-dated cache entry is ignored and replaced by a live probe", async () => {
+    const { bin, cacheFile } = setup(
+      "#!/bin/sh\necho 'openai/live-model'\n",
+    );
+    writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        [`opencode::${resolve(process.cwd())}`]: {
+          binary: bin,
+          ts: Date.now() + 60_000,
+          models: ["opencode/poisoned-model"],
+        },
+      }),
+    );
+    const models = await servableModels("opencode");
+    expect(models).toEqual(new Set(["openai/live-model"]));
+  });
+
+  test("cache write failure never hides a successful probe", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-servable-write-"));
+    const bin = join(dir, "fake-opencode");
+    const dataFile = join(dir, "not-a-directory");
+    writeFileSync(bin, "#!/bin/sh\necho 'openai/live-model'\n", {
+      mode: 0o755,
+    });
+    writeFileSync(dataFile, "occupied");
+    process.env.RELAY_OPENCODE_BIN = bin;
+    process.env.XDG_DATA_HOME = dataFile;
+
+    expect(await servableModels("opencode", { fresh: true })).toEqual(
+      new Set(["openai/live-model"]),
+    );
+  });
+
+  test("cache entries are scoped to the workspace whose config was probed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-servable-cwd-"));
+    const bin = join(dir, "fake-opencode");
+    const repoA = join(dir, "repo-a");
+    const repoB = join(dir, "repo-b");
+    mkdirSync(repoA);
+    mkdirSync(repoB);
+    writeFileSync(
+      bin,
+      "#!/bin/sh\ncase \"$PWD\" in *repo-a) echo 'openai/model-a' ;; *) echo 'openai/model-b' ;; esac\n",
+      { mode: 0o755 },
+    );
+    mkdirSync(join(dir, "data", "relay"), { recursive: true });
+    process.env.RELAY_OPENCODE_BIN = bin;
+    process.env.XDG_DATA_HOME = join(dir, "data");
+
+    expect(await servableModels("opencode", { cwd: repoA })).toEqual(
+      new Set(["openai/model-a"]),
+    );
+    expect(await servableModels("opencode", { cwd: repoB })).toEqual(
+      new Set(["openai/model-b"]),
+    );
   });
 
   test("invalidateServableCache drops the entry so the next call re-probes", async () => {

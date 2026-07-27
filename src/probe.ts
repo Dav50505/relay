@@ -209,7 +209,7 @@ export async function probeTools(
     results.push({ ...base, summary: summarize(base) });
   }
 
-  // Experimental CLIs — presence only
+  // Spec-driven CLIs — presence only; verified status belongs to the adapter.
   for (const [id, spec] of Object.entries(CLI_SPECS)) {
     if (id === "codex") continue;
     const bin = discoverCliBinary(spec);
@@ -221,7 +221,11 @@ export async function probeTools(
       binary: bin ?? undefined,
       authed: "unknown" as const,
       login: bin
-        ? { cmd: [bin, "login"], note: spec.loginHint }
+        ? {
+            cmd: [bin, ...spec.loginArgs],
+            note: spec.loginHint,
+            interactive: spec.loginInteractive,
+          }
         : undefined,
     };
     results.push({ ...base, summary: summarize(base) });

@@ -73,6 +73,76 @@ default_lane: quickfix
     expect(outcome.id).toStartWith("run_");
   });
 
+  test("a failed opencode model falls back to another provider on the same backend", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-opencode-fallback-"));
+    await Bun.$`git init`.cwd(dir).quiet();
+    writeFileSync(
+      join(dir, "router.yaml"),
+      `version: 1
+baseline: opus-5
+tiers:
+  work:
+    - { backend: opencode, model: openai/first-model }
+    - { backend: opencode, model: abacus/second-model }
+lanes:
+  - name: status
+    match: { verbs: [check] }
+    tier: work
+    write: none
+default_lane: status
+`,
+    );
+    const bin = join(dir, "fake-opencode");
+    writeFileSync(
+      bin,
+      `#!/bin/sh
+if [ "$1" = "models" ]; then
+  echo openai/first-model
+  echo abacus/second-model
+  exit 0
+fi
+if [ "$1" = "run" ] && [ "$2" = "--help" ]; then
+  echo '--model --agent --pure --variant'
+  exit 0
+fi
+case "$*" in
+  *openai/first-model*) echo 'first provider failed' >&2; exit 1 ;;
+  *abacus/second-model*) echo 'second provider succeeded'; exit 0 ;;
+esac
+exit 2
+`,
+      { mode: 0o755 },
+    );
+
+    const prevBin = process.env.RELAY_OPENCODE_BIN;
+    const prevConfig = process.env.XDG_CONFIG_HOME;
+    const prevData = process.env.XDG_DATA_HOME;
+    process.env.RELAY_OPENCODE_BIN = bin;
+    process.env.XDG_CONFIG_HOME = join(dir, "config");
+    process.env.XDG_DATA_HOME = join(dir, "data");
+    try {
+      const outcome = await runTask({
+        task: "check the implementation",
+        cwd: dir,
+        lane: "status",
+      });
+      expect(outcome.verifyOk).toBe(true);
+      expect(outcome.backend).toBe("opencode");
+      expect(outcome.model).toBe("abacus/second-model");
+      expect(
+        readEvents(outcome.id).find((event) => event.phase === "fallback")
+          ?.detail,
+      ).toContain("candidate opencode/openai/first-model failed");
+    } finally {
+      if (prevBin === undefined) delete process.env.RELAY_OPENCODE_BIN;
+      else process.env.RELAY_OPENCODE_BIN = prevBin;
+      if (prevConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prevConfig;
+      if (prevData === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = prevData;
+    }
+  });
+
   test("worktree lane commits to a relay/* branch and reports how to reconcile", async () => {
     const dir = mkdtempSync(join(tmpdir(), "relay-wt-"));
     await Bun.$`git init`.cwd(dir).quiet();

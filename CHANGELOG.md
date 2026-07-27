@@ -13,10 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   levels work per tier, and the kimi adapter is flag-verified.** There is no `--effort`
   flag, so a tier's `effort:` now spawns the CLI with `KIMI_MODEL_THINKING_EFFORT` — k3
   takes low/high/max (default high); on boolean-thinking models (k2.6, k2.7-code) any
-  value just means thinking on. The default router gains kimi fallbacks in every tier but
-  nano — a kimi-only machine routed nothing before. k3 lands in opus-class provisionally:
-  every published number is vendor-only, the same evidence rule that demoted k2.7-code
-  from frontier. k2.7-code's price was re-verified against models.dev (0.95/4.0, cache
+  value just means thinking on. The default router gains kimi fallbacks in cheap/work/fast;
+  review/deep deliberately wait because every published k3 quality number is vendor-only.
+  The same evidence rule that demoted k2.7-code keeps k3 in workhorse until independent
+  results land. k2.7-code's price was re-verified against models.dev (0.95/4.0, cache
   0.19 — was 1.0/4.0 flat) and now supersedes k2.6 (same rate card, newer,
   code-specialized)
 
@@ -40,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback in every default tier, and the 11 catalog models zen serves list it as a backend.
   Zen's free models (big-pickle, `*-free`) are deliberately not cataloged — no independent
   benchmarks (the evidence rule), and $0 would poison advise's cheaper-in-class rule; pin them
-  manually if wanted. Permission posture stays with the user's opencode config — relay never
-  passes `--auto`
+  manually if wanted. Relay never passes `--auto`; read-only lanes additionally use `--pure`
+  and a deny-by-default per-process agent, while write lanes retain the user's own posture
 - **The catalog can price a model by who served it.** Reviewing the opencode adapter turned up
   a receipt bug hiding inside a reasonable-sounding sentence — "zen's rate card can differ
   slightly from direct API prices". Checked against models.dev, four of the eleven models zen
@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because nobody served the counterfactual, and `relay advise` costs candidates the same way,
   since quoting a zen-served pick at the vendor card would promise a saving the user never
   gets (and for two of these models, overstate it)
+- **Managed backends can be explicitly unpriceable.** Kimi's `kimi login` routes through a
+  managed/included-plan service, not the Moonshot API rate card listed on the model entry.
+  `unpriced_backends` keeps the vendor rate available for direct serving paths while making
+  managed Kimi receipts say unavailable — an estimated token count does not license an invented
+  dollar rate
 - **Servable-model awareness for opencode: installed ≠ servable.** A machine can have the
   opencode CLI present with only foreign provider logins (OpenAI, Abacus, …) and no zen
   billing — in which case every shipped opencode fallback would fail at runtime, because
@@ -74,6 +79,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   map now translates catalog ids (verified against kimi-code 0.29.1); k2.6, which the
   managed service does not serve, still passes through so users pin their own provider
   alias (e.g. `moonshotai/kimi-k2.6`)
+- **Read-only Kimi/OpenCode routes are enforced by CLI posture, not prompt prose.** Kimi uses
+  `--plan`; OpenCode gets a uniquely named, deny-by-default read-only agent so repo config cannot
+  merge permissions into relay's profile. Required flags are detected from command-specific help
+  before tokens are spent, so CLI drift becomes an actionable backend failure and normal fallback
+  rather than a crash or an accidental write
+- **OpenCode fallback and advice now operate on servable candidates, not installed binaries.**
+  The model cache is validated, repo-scoped, atomic, and strictly fail-open; `advise` applies the
+  same filter to cheaper/successor picks; and a failed provider/model excludes only that
+  candidate, allowing another provider behind the same OpenCode binary to run
+- **OpenCode preserves reasoning variants and uses its real login command.** Canonical `*-high`
+  ids and tier effort reach `--variant`; `relay login opencode` now points at the interactive
+  `opencode providers login` flow instead of launching the TUI as a project named `login`
+- **CLI and MCP doctor now both expose Kimi's declared floating handles.** The agent-facing
+  snapshot previously omitted the warning even though it is where most doctor calls happen
 
 ## [0.12.2] — 2026-07-25
 

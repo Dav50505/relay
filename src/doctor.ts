@@ -96,7 +96,7 @@ export async function runDoctor(
   // say what it can actually serve here — and filter tier resolution
   // through it below. Probe null → no line, no filtering (fail-open).
   const servable = availableBackends().has("opencode")
-    ? await servableModels("opencode", { fresh })
+    ? await servableModels("opencode", { fresh, cwd })
     : null;
   if (servable) {
     try {
@@ -159,7 +159,7 @@ export async function runDoctor(
             floating,
         );
       } catch {
-        lines.push(`  ${tierName.padEnd(7)} → ✗ no installed backend`);
+        lines.push(`  ${tierName.padEnd(7)} → ✗ no eligible backend/model`);
       }
     }
     if (sawFloating) {

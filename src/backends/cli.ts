@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { which } from "../which.ts";
 import type { Brief } from "../brief.ts";
 import { renderBriefPrompt } from "../brief.ts";
@@ -13,8 +14,8 @@ import {
 /**
  * Spec-driven adapter for headless agent CLIs. Adding a new tool is one
  * entry in SPECS (binary names + arg shape) — no new adapter class.
- * Permission posture (sandbox overrides, auto-approve flags) stays with
- * the user's own tool config; relay never passes dangerous bypass flags.
+ * Relay never passes dangerous bypass flags. Write lanes retain the user's
+ * tool posture; read-only lanes may add a narrower backend-enforced posture.
  */
 export type CliBackendSpec = {
   name: string;
@@ -22,13 +23,82 @@ export type CliBackendSpec = {
   binaries: string[];
   /** env var that overrides binary discovery, e.g. RELAY_CODEX_BIN */
   binEnv: string;
-  buildArgs: (prompt: string, model: string, effort?: string) => string[];
+  buildArgs: (
+    prompt: string,
+    model: string,
+    effort?: string,
+    write?: BackendRunOpts["write"],
+  ) => string[];
   /** per-spawn env additions, e.g. kimi's effort passthrough */
-  buildEnv?: (effort?: string) => Record<string, string>;
+  buildEnv?: (
+    effort?: string,
+    write?: BackendRunOpts["write"],
+  ) => Record<string, string>;
+  /** command-specific help used to detect flags before spending model tokens */
+  helpArgs?: string[];
+  /** flags this invocation requires from the installed CLI */
+  requiredFlags?: (
+    model: string,
+    effort?: string,
+    write?: BackendRunOpts["write"],
+  ) => string[];
   /** flags verified against a real installation vs best-known/drift-prone */
   verified: boolean;
+  /** arguments for the backend's real sign-in command */
+  loginArgs: string[];
+  loginInteractive: boolean;
   loginHint: string;
 };
+
+// A repo can define its own opencode agents. Use an unpredictable per-process
+// name so an untrusted project config cannot merge extra permissions into the
+// profile relay selects for a read-only lane.
+const OPENCODE_READONLY_AGENT = `relay-readonly-${randomUUID()}`;
+const OPENCODE_READONLY_CONFIG = JSON.stringify({
+  agent: {
+    [OPENCODE_READONLY_AGENT]: {
+      description: "Read-only relay worker",
+      mode: "primary",
+      permission: {
+        "*": "deny",
+        read: "allow",
+        grep: "allow",
+        glob: "allow",
+        list: "allow",
+        lsp: "allow",
+        webfetch: "allow",
+        websearch: "allow",
+      },
+    },
+  },
+});
+
+const cliHelpCache = new Map<string, string>();
+
+async function missingRequiredFlags(
+  bin: string,
+  spec: CliBackendSpec,
+  model: string,
+  effort: string | undefined,
+  write: BackendRunOpts["write"],
+): Promise<string[]> {
+  const required = spec.requiredFlags?.(model, effort, write) ?? [];
+  if (required.length === 0) return [];
+
+  const helpArgs = spec.helpArgs ?? ["--help"];
+  const key = `${bin}\0${helpArgs.join("\0")}`;
+  let help = cliHelpCache.get(key);
+  if (help === undefined) {
+    try {
+      const result = await runCli([bin, ...helpArgs], { timeoutMs: 15_000 });
+      help = result.stdout + result.stderr;
+    } catch {
+      help = "";
+    }
+    cliHelpCache.set(key, help);
+  }
+  return required.filter((flag) => !help!.includes(flag));
+}
 
 /** canonical catalog id → pinned zen provider id (see opencodeModelId) */
 export const OPENCODE_ID_MAP: Record<string, string> = {
@@ -51,10 +121,10 @@ export const OPENCODE_ID_MAP: Record<string, string> = {
  * provider (verified 2026-07-25 against opencode 1.18.5). Zen names the
  * claude family with a `claude-` prefix (`opencode/claude-opus-5`) while
  * other models match the catalog ids verbatim (`opencode/glm-5.2`). `-high`
- * effort suffixes are dropped — relay does not wire effort for opencode, so
- * the provider's own default applies. Unknown ids pass through so users can
- * pin their own provider/model (e.g. `openai/gpt-5.6-sol`) rather than
- * relay silently substituting one.
+ * effort suffixes are dropped from the provider id and sent separately as an
+ * opencode variant. Unknown ids pass through so users can pin their own
+ * provider/model (e.g. `openai/gpt-5.6-sol`) rather than relay silently
+ * substituting one.
  */
 export function opencodeModelId(canonical: string): string {
   return OPENCODE_ID_MAP[canonical] ?? canonical;
@@ -153,6 +223,8 @@ export const CLI_SPECS: Record<string, CliBackendSpec> = {
       prompt,
     ],
     verified: true,
+    loginArgs: ["login"],
+    loginInteractive: false,
     loginHint: "codex login",
   },
   gemini: {
@@ -161,6 +233,8 @@ export const CLI_SPECS: Record<string, CliBackendSpec> = {
     binEnv: "RELAY_GEMINI_BIN",
     buildArgs: (prompt, model) => ["-p", prompt, "-m", model],
     verified: false,
+    loginArgs: [],
+    loginInteractive: true,
     loginHint: "gemini (first run opens auth)",
   },
   grok: {
@@ -169,6 +243,8 @@ export const CLI_SPECS: Record<string, CliBackendSpec> = {
     binEnv: "RELAY_GROK_BIN",
     buildArgs: (prompt, model) => ["-p", prompt, "--model", model],
     verified: false,
+    loginArgs: ["auth", "login"],
+    loginInteractive: false,
     loginHint: "grok auth login",
   },
   opencode: {
@@ -177,15 +253,34 @@ export const CLI_SPECS: Record<string, CliBackendSpec> = {
     binEnv: "RELAY_OPENCODE_BIN",
     // Verified 2026-07-25 against opencode 1.18.5:
     // `opencode run --model opencode/big-pickle …` answered on stdout, exit 0.
-    // Permission posture stays with the user's own opencode config — relay
-    // never passes `--auto` or any other permission/sandbox flag.
-    buildArgs: (prompt, model) => [
-      "run",
+    // Write lanes keep the user's opencode posture. Read-only lanes select a
+    // per-process deny-by-default agent and never pass the dangerous `--auto`.
+    buildArgs: (prompt, model, effort, write) => {
+      const variant = effort ?? (model.endsWith("-high") ? "high" : undefined);
+      return [
+        "run",
+        ...(write === "none"
+          ? ["--pure", "--agent", OPENCODE_READONLY_AGENT]
+          : []),
+        "--model",
+        opencodeModelId(model),
+        ...(variant ? ["--variant", variant] : []),
+        prompt,
+      ];
+    },
+    buildEnv: (_effort, write): Record<string, string> =>
+      write === "none"
+        ? { OPENCODE_CONFIG_CONTENT: OPENCODE_READONLY_CONFIG }
+        : {},
+    helpArgs: ["run", "--help"],
+    requiredFlags: (model, effort, write) => [
       "--model",
-      opencodeModelId(model),
-      prompt,
+      ...(write === "none" ? ["--pure", "--agent"] : []),
+      ...(effort || model.endsWith("-high") ? ["--variant"] : []),
     ],
     verified: true,
+    loginArgs: ["providers", "login"],
+    loginInteractive: true,
     loginHint: "opencode providers login",
   },
   kimi: {
@@ -193,14 +288,28 @@ export const CLI_SPECS: Record<string, CliBackendSpec> = {
     binaries: ["kimi"],
     binEnv: "RELAY_KIMI_BIN",
     // Verified against kimi-code 0.29.1: `kimi -p PROMPT --model ALIAS`.
-    buildArgs: (prompt, model) => ["-p", prompt, "--model", kimiModelId(model)],
+    buildArgs: (prompt, model, _effort, write) => [
+      "-p",
+      prompt,
+      "--model",
+      kimiModelId(model),
+      ...(write === "none" ? ["--plan"] : []),
+    ],
     // There is no --effort flag; KIMI_MODEL_THINKING_EFFORT forces
     // thinking.effort on the wire for kimi-type providers (k3 takes
     // low/high/max; boolean-thinking models like k2.7-code treat any enabled
     // value as "on"). Unset, the model alias's own default_effort applies.
     buildEnv: (effort): Record<string, string> =>
       effort ? { KIMI_MODEL_THINKING_EFFORT: effort } : {},
+    helpArgs: ["--help"],
+    requiredFlags: (_model, _effort, write) => [
+      "--model",
+      "--prompt",
+      ...(write === "none" ? ["--plan"] : []),
+    ],
     verified: true,
+    loginArgs: ["login"],
+    loginInteractive: false,
     loginHint: "kimi login",
   },
 };
@@ -232,13 +341,39 @@ export class GenericCliBackend implements Backend {
     }
 
     const prompt = renderBriefPrompt(brief, opts.write);
-    const args = this.spec.buildArgs(prompt, opts.model, opts.effort);
+    const missing = await missingRequiredFlags(
+      bin,
+      this.spec,
+      opts.model,
+      opts.effort,
+      opts.write,
+    );
+    if (missing.length > 0) {
+      return {
+        output:
+          `${this.name} backend: installed CLI is missing required flag(s): ` +
+          `${missing.join(", ")}. Upgrade the ${this.name} CLI and run \`relay doctor\`.`,
+        filesChanged: [],
+        usage: {
+          tokensIn: 0,
+          tokensOut: 0,
+          estimated: true,
+        },
+        exitCode: 2,
+      };
+    }
+    const args = this.spec.buildArgs(
+      prompt,
+      opts.model,
+      opts.effort,
+      opts.write,
+    );
     const { stdout, stderr, exitCode } = await runCli([bin, ...args], {
       cwd: opts.cwd,
       env: {
         ...process.env,
         RELAY_WORKER: "1",
-        ...this.spec.buildEnv?.(opts.effort),
+        ...this.spec.buildEnv?.(opts.effort, opts.write),
       },
     });
 

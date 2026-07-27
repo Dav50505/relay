@@ -44,6 +44,8 @@ const CatalogModelSchema = z.object({
       }),
     )
     .optional(),
+  /** Backends whose billing cannot be represented as a per-token rate. */
+  unpriced_backends: z.array(z.string()).optional(),
 });
 
 export const CatalogSchema = z.object({
@@ -68,6 +70,18 @@ export function parseCatalog(text: string): Catalog {
       if (!m.backends.includes(backend)) {
         throw new Error(
           `catalog: model "${id}" prices backend "${backend}", which is not in its backends list`,
+        );
+      }
+    }
+    for (const backend of m.unpriced_backends ?? []) {
+      if (!m.backends.includes(backend)) {
+        throw new Error(
+          `catalog: model "${id}" marks backend "${backend}" unpriced, which is not in its backends list`,
+        );
+      }
+      if (m.backend_prices?.[backend]) {
+        throw new Error(
+          `catalog: model "${id}" both prices and marks backend "${backend}" unpriced`,
         );
       }
     }
@@ -141,6 +155,10 @@ export function blendedCost(m: { in: number; out: number }): number {
  * card would promise a saving the user doesn't get — and in zen's case
  * overstate it, since two of its cheap models cost more than the vendor's.
  */
-export function blendedCostVia(m: CatalogModel, backend?: string): number {
+export function blendedCostVia(
+  m: CatalogModel,
+  backend?: string,
+): number | null {
+  if (backend && m.unpriced_backends?.includes(backend)) return null;
   return blendedCost((backend && m.backend_prices?.[backend]) || m);
 }

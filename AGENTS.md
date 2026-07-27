@@ -88,8 +88,9 @@ Change these only deliberately — each one is load-bearing.
   also how relay avoids guessing which model is newest: users name a quality bar, not a version.
   `relay advise` proposes changes; a human accepts them. Relay never edits policy itself.
   Installed ≠ servable for multi-provider CLIs: opencode candidates are filtered through a
-  cached `opencode models` probe (fail-open on probe error), and advise's availability nudges
-  suggest pinnable candidates but are never auto-applied.
+  repo-scoped `opencode models` cache. Invalid/stale cache data and every probe/write error
+  fail open to allow-all; a stale deny-list must never block routing. Advise uses the same
+  filter, and its availability nudges suggest pinnable candidates but are never auto-applied.
 - **Git is the review surface.** Edits land in the caller's working tree as ordinary **unstaged**
   changes, indistinguishable from the host agent's own. Relay never stages or commits on the
   user's branch — auto-staging polluted their next commit. Walkaway lanes opt into `worktree`,
@@ -110,7 +111,9 @@ Change these only deliberately — each one is load-bearing.
   ignoring them once overstated savings ~12x. A gateway that resells a model at its own card
   gets a `backend_prices` entry, because "the model's price" is otherwise ambiguous: zen serves
   four of its models off the vendor rate by up to ~40% in both directions. The baseline is
-  never backend-priced — nobody ran the counterfactual.
+  never backend-priced — nobody ran the counterfactual. A subscription/managed backend with no
+  authoritative marginal token rate goes in `unpriced_backends`; using the vendor API card for
+  it is fabrication, not estimation.
 - **Auth is delegated; relay stores no credentials.** Never pass
   `--dangerously-skip-permissions` on the user's behalf — permission posture is theirs.
 - **Backend CLI flags drift.** Feature-detect, fail with an actionable message, never crash core.
@@ -140,7 +143,9 @@ Change these only deliberately — each one is load-bearing.
 - **Never ship a second copy of the price table.** A `prices.yaml` entry overrides the catalog
   forever — `relay update` cannot reach it — so `EMBEDDED_PRICES_YAML` lists no models and
   `relay init` writes no prices file. Guarded by `tests/savings.test.ts`.
-- **Read-only lanes must be read-only in the backend flags too**, not just in the prompt.
+- **Read-only lanes must be read-only in the backend flags too**, not just in the prompt. Kimi
+  uses `--plan`; opencode uses `--pure` plus a uniquely named per-process deny-by-default agent
+  profile so repo config cannot merge permissions into it.
 - **A file found in the working directory never grants a permission.** Repo-local config is
   input, not authority: user config outranks it, `autonomy: full` and `write: worktree` are
   clamped out of it, and its verify commands need `relay trust`. The recurring bug is treating

@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeFileSync } from "node:fs";
 import { requireRunCwd, routingSnapshot } from "../src/mcp.ts";
 
 const original = process.cwd();
@@ -69,5 +68,44 @@ describe("routingSnapshot (what relay_doctor tells an agent)", () => {
     writeFileSync(join(dir, "router.yaml"), "version: 1\ntiers: nope\n");
     const snap = routingSnapshot(dir) as { directive_error?: string };
     expect(snap.directive_error).toBeTruthy();
+  });
+
+  test("marks kimi floating handles in agent-facing tier resolution", () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-snap-kimi-"));
+    const bin = join(dir, "kimi");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(
+      join(dir, "router.yaml"),
+      `version: 1
+baseline: opus-5
+tiers:
+  work:
+    - { backend: kimi, model: kimi-k2.7-code }
+lanes:
+  - name: status
+    match: { verbs: [check] }
+    tier: work
+    write: none
+default_lane: status
+`,
+    );
+    const prevBin = process.env.RELAY_KIMI_BIN;
+    const prevConfig = process.env.XDG_CONFIG_HOME;
+    process.env.RELAY_KIMI_BIN = bin;
+    process.env.XDG_CONFIG_HOME = join(dir, "config");
+    try {
+      const snap = routingSnapshot(dir) as {
+        tier_resolution?: Record<string, string>;
+      };
+      expect(snap.tier_resolution?.work).toContain(
+        "kimi-code/kimi-for-coding",
+      );
+      expect(snap.tier_resolution?.work).toContain("re-points");
+    } finally {
+      if (prevBin === undefined) delete process.env.RELAY_KIMI_BIN;
+      else process.env.RELAY_KIMI_BIN = prevBin;
+      if (prevConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prevConfig;
+    }
   });
 });

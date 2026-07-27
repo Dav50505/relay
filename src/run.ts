@@ -81,17 +81,24 @@ export async function runTask(opts: RunOpts): Promise<RunOutcome> {
   });
 
   // With an explicit backend override (tests), skip availability filtering.
-  // Mutable during the run: a backend that hard-fails (auth, crash) is
-  // dropped so retries re-resolve onto the next fallback candidate.
+  // Mutable during the run: a backend/model candidate that hard-fails (auth,
+  // unsupported model, crash) is dropped so retries can use another model on
+  // the same multi-provider CLI as well as another backend.
   const available = opts.backendOverride ? undefined : availableBackends();
   // Installed ≠ servable for multi-provider CLIs — fetched once per run;
   // fail-open: a failed probe yields an allow-all predicate, no filtering.
   const servable = available?.has("opencode")
-    ? servablePredicate(await servableModels("opencode"))
+    ? servablePredicate(await servableModels("opencode", { cwd }))
     : undefined;
+  const failedCandidates = new Set<string>();
+  const candidateKey = (backend: string, model: string) =>
+    `${backend}\0${model}`;
+  const candidateAllowed = (backend: string, model: string) =>
+    !failedCandidates.has(candidateKey(backend, model)) &&
+    (servable?.(backend, model) ?? true);
 
   let tierName = decision.tier;
-  let tier = resolveTier(directive, tierName, available, servable);
+  let tier = resolveTier(directive, tierName, available, candidateAllowed);
   if (opts.backendOverride) {
     tier = { ...tier, backend: opts.backendOverride as typeof tier.backend };
   }
@@ -226,7 +233,7 @@ export async function runTask(opts: RunOpts): Promise<RunOutcome> {
   while (true) {
     tierName = state.tier;
     try {
-      tier = resolveTier(directive, tierName, available, servable);
+      tier = resolveTier(directive, tierName, available, candidateAllowed);
     } catch (e) {
       // escalation landed on a tier with no installed backend — stop here
       lastOutput += `\n\n[relay] ${(e as Error).message}`;
@@ -317,17 +324,22 @@ export async function runTask(opts: RunOpts): Promise<RunOutcome> {
     if (
       result.exitCode !== 0 &&
       filesChanged.length === 0 &&
-      available?.has(tier.backend) &&
-      available.size > 1
+      available?.has(tier.backend)
     ) {
-      available.delete(tier.backend);
+      failedCandidates.add(candidateKey(tier.backend, tier.model));
       try {
-        resolveTier(directive, tierName, available, servable);
-        lastOutput += `\n\n[relay] backend ${tier.backend} failed (exit ${result.exitCode}) → trying next fallback backend`;
-        emit("fallback", `backend ${tier.backend} failed → next candidate`);
+        resolveTier(directive, tierName, available, candidateAllowed);
+        lastOutput += `\n\n[relay] candidate ${tier.backend}/${tier.model} failed (exit ${result.exitCode}) → trying next fallback candidate`;
+        emit(
+          "fallback",
+          `candidate ${tier.backend}/${tier.model} failed → next candidate`,
+        );
         continue;
       } catch {
-        // no other backend can serve this tier — fall through to escalation
+        // No same-tier fallback: preserve the normal widen/escalate path by
+        // allowing this last candidate to be retried. Earlier failed
+        // candidates stay excluded, so a multi-provider tier still advances.
+        failedCandidates.delete(candidateKey(tier.backend, tier.model));
       }
     }
 

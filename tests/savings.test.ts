@@ -130,6 +130,24 @@ describe("savings", () => {
     expect(b!.costBaselineUsd).toBeCloseTo(18, 5);
   });
 
+  test("managed kimi routes are unavailable instead of using vendor API rates", () => {
+    const prices = loadPrices(joinRoot());
+    const r = makeReceipt({
+      prices,
+      usedModel: "kimi-k3",
+      usedBackend: "kimi",
+      baselineModel: "opus-5",
+      usage: {
+        tokensIn: 1_000_000,
+        tokensOut: 1_000_000,
+        estimated: true,
+      },
+    });
+    expect(r!.line).toContain("savings unavailable");
+    expect(r!.line).toContain("missing price for kimi/kimi-k3");
+    expect(r!.costUsedUsd).toBe(0);
+  });
+
   test("cheaper baseline is reported honestly, not as $0.00 saved", () => {
     const prices = loadPrices(joinRoot());
     const r = makeReceipt({

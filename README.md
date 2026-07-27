@@ -111,14 +111,15 @@ org hasn't approved (change anytime: `relay backends enable|disable <tool>`).
    built-in zen provider (`opencode/<model>`); to use another provider, pin its
    `provider/model` id in router.yaml. kimi notes: `kimi-k2.6` is open-platform
    only — pin your provider alias (e.g. `moonshotai/kimi-k2.6`); `kimi-k3` takes
-   `effort: low|high|max` per tier
+   `effort: low|high|max`, but stays out of review/deep until independent quality evidence lands
 4. **Verify → widen → escalate** — thin briefs that self-heal before spending frontier tokens
 5. **Receipt** — savings as a named counterfactual: what the same tokens would have cost on
    your `baseline` model. The default is `opus-5`, deliberately the same model relay's own
    `deep` tier escalates to — comparing against a pricier model relay would never choose
    would inflate the number. Set it in `router.yaml` to whatever you'd otherwise run.
    Measured from backend-reported tokens for cursor/claude, byte-estimated `[estimated]`
-   otherwise
+   otherwise. Managed Kimi plans have no authoritative marginal token rate, so those receipts
+   say unavailable instead of substituting Moonshot's direct API card
 
 Edits land in your working tree as ordinary uncommitted changes — exactly like your
 agent's own edits, nothing staged or committed for you. Walkaway lanes work in an
@@ -250,7 +251,7 @@ Contributions are welcome — fork, branch, open a PR. No access request, no CLA
 - [**good first issue**](https://github.com/yoreai/relay/labels/good%20first%20issue) — start here
 - **Model catalog updates** are the easiest high-value contribution: prices and quality
   classes are data, and they reach installed relays via `relay update` with no release
-- **Verifying an experimental backend adapter** (`gemini`, `grok`, `kimi`) needs something a
+- **Verifying an experimental backend adapter** (`gemini`, `grok`) needs something a
   maintainer can't provide alone — those CLIs installed on a real machine
 - Found a security problem? Please [report it privately](./SECURITY.md) rather than in an issue
 

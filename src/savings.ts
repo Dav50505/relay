@@ -16,6 +16,7 @@ const PricesSchema = z.object({
       cache_read: z.number().optional(),
     }),
   ),
+  unpriced: z.array(z.string()).default([]),
   bytes_per_token: z.number().positive().default(4),
 });
 
@@ -44,6 +45,7 @@ export function loadPrices(cwd: string = process.cwd()): Prices {
   // entry always wins so users can pin their own numbers.
   const { catalog } = loadCatalog();
   const catalogModels: Prices["models"] = {};
+  const unpriced = new Set(parsed.unpriced);
   for (const [id, m] of Object.entries(catalog.models)) {
     catalogModels[id] = { in: m.in, out: m.out, cache_read: m.cache_read };
     // Reseller rates get a qualified key, so pricing a run is one lookup and a
@@ -52,8 +54,16 @@ export function loadPrices(cwd: string = process.cwd()): Prices {
     for (const [backend, p] of Object.entries(m.backend_prices ?? {})) {
       catalogModels[`${backend}/${id}`] = p;
     }
+    for (const backend of m.unpriced_backends ?? []) {
+      unpriced.add(`${backend}/${id}`);
+    }
   }
-  return { ...parsed, models: { ...catalogModels, ...parsed.models } };
+  for (const id of Object.keys(parsed.models)) unpriced.delete(id);
+  return {
+    ...parsed,
+    models: { ...catalogModels, ...parsed.models },
+    unpriced: [...unpriced],
+  };
 }
 
 /**
@@ -67,8 +77,9 @@ export function priceKey(
   prices: Prices,
   model: string,
   backend?: string,
-): string {
+): string | null {
   const qualified = backend ? `${backend}/${model}` : undefined;
+  if (qualified && prices.unpriced.includes(qualified)) return null;
   return qualified && prices.models[qualified] ? qualified : model;
 }
 
@@ -104,13 +115,20 @@ export function makeReceipt(opts: {
   const tokensCacheRead = opts.usage?.tokensCacheRead ?? 0;
   if (!tokensIn && !tokensOut) return null;
 
-  const costUsed = priceTokens(
+  const usedPriceKey = priceKey(
     opts.prices,
-    priceKey(opts.prices, opts.usedModel, opts.usedBackend),
-    tokensIn,
-    tokensOut,
-    tokensCacheRead,
+    opts.usedModel,
+    opts.usedBackend,
   );
+  const costUsed = usedPriceKey
+    ? priceTokens(
+        opts.prices,
+        usedPriceKey,
+        tokensIn,
+        tokensOut,
+        tokensCacheRead,
+      )
+    : null;
   const costBase = priceTokens(
     opts.prices,
     opts.baselineModel,
@@ -129,7 +147,7 @@ export function makeReceipt(opts: {
       costUsedUsd: 0,
       costBaselineUsd: 0,
       savedUsd: 0,
-      line: `relay: savings unavailable (missing price for ${opts.usedModel} or ${opts.baselineModel})`,
+      line: `relay: savings unavailable (missing price for ${usedPriceKey ?? `${opts.usedBackend}/${opts.usedModel}`} or ${opts.baselineModel})`,
     };
   }
 

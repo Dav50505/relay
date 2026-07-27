@@ -24,10 +24,7 @@ const directive = loadDirectiveFromText(
 describe("catalog", () => {
   test("embedded catalog matches file catalog", () => {
     const embedded = parseCatalog(EMBEDDED_CATALOG_YAML);
-    expect(Object.keys(embedded.models).sort()).toEqual(
-      Object.keys(catalog.models).sort(),
-    );
-    expect(embedded.updated).toBe(catalog.updated);
+    expect(embedded).toEqual(catalog);
   });
 
   test("every default tier candidate exists in catalog with valid backend", () => {
@@ -47,6 +44,15 @@ describe("catalog", () => {
     const kimi = catalog.models["kimi-k2.7-code"]!;
     const fable = catalog.models["fable-5-high"]!;
     expect(kimi.class).not.toBe(fable.class);
+    expect(catalog.models["kimi-k3"]?.class).toBe("workhorse");
+  });
+
+  test("vendor-only kimi-k3 is not a default review or deep fallback", () => {
+    for (const tier of ["review", "deep"]) {
+      expect(
+        directive.tiers[tier]?.some((candidate) => candidate.model === "kimi-k3"),
+      ).toBe(false);
+    }
   });
 
   test("a reseller rate for a backend that can't serve the model is rejected", () => {
@@ -73,6 +79,36 @@ models:
         expect(m.backends, `${id} → ${backend}`).toContain(backend);
       }
     }
+  });
+
+  test("unpriced backends must serve the model and cannot also have a rate", () => {
+    expect(() =>
+      parseCatalog(`version: 1
+updated: "2026-07-26"
+classes: [cheap]
+models:
+  m1:
+    class: cheap
+    in: 1.0
+    out: 2.0
+    backends: [claude]
+    unpriced_backends: [kimi]
+`),
+    ).toThrow(/marks backend "kimi" unpriced/);
+    expect(() =>
+      parseCatalog(`version: 1
+updated: "2026-07-26"
+classes: [cheap]
+models:
+  m1:
+    class: cheap
+    in: 1.0
+    out: 2.0
+    backends: [kimi]
+    backend_prices: { kimi: { in: 0, out: 0 } }
+    unpriced_backends: [kimi]
+`),
+    ).toThrow(/both prices and marks backend "kimi" unpriced/);
   });
 
   test("opus-5 undercuts fable-5 without leaving the frontier class", () => {
@@ -228,7 +264,7 @@ describe("the shipped defaults are advise-clean", () => {
     const catalog = parseCatalog(
       readFileSync(join(ROOT, "defaults", "catalog.yaml"), "utf8"),
     );
-    for (const backend of ["cursor", "claude", "codex", "opencode"]) {
+    for (const backend of ["cursor", "claude", "codex", "kimi", "opencode"]) {
       const suggestions = adviseTiers(
         directive,
         catalog,

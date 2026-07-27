@@ -26,12 +26,12 @@ export type TierSuggestion = {
   tier: string;
   currentBackend: string;
   currentModel: string;
-  currentCost: number;
+  currentCost: number | null;
   backend: string;
   model: string;
-  cost: number;
+  cost: number | null;
   class: string;
-  savingsPct: number;
+  savingsPct: number | null;
   /**
    * "cheaper" — same quality class, meaningfully less money.
    * "supersedes" — the current pick was replaced by a strictly better model at
@@ -57,19 +57,22 @@ function findSuccessor(
   currentBackend: string,
   catalog: Catalog,
   available: Set<string>,
+  isServable: (backend: string, model: string) => boolean,
 ): { id: string; backend: string; cost: number } | null {
   const currentCost = blendedCostVia(currentEntry, currentBackend);
+  if (currentCost == null) return null;
   let best: { id: string; backend: string; cost: number } | null = null;
 
   for (const [id, m] of Object.entries(catalog.models)) {
     if (id === currentId) continue;
     if (!m.supersedes?.includes(currentId)) continue;
     if (currentEntry.fast && !m.fast) continue;
-    const backend = m.backends.find((b) => available.has(b));
-    if (!backend) continue;
-    const cost = blendedCostVia(m, backend);
-    if (cost > currentCost) continue;
-    if (!best || cost < best.cost) best = { id, backend, cost };
+    for (const backend of m.backends) {
+      if (!available.has(backend) || !isServable(backend, id)) continue;
+      const cost = blendedCostVia(m, backend);
+      if (cost == null || cost > currentCost) continue;
+      if (!best || cost < best.cost) best = { id, backend, cost };
+    }
   }
 
   return best;
@@ -109,8 +112,12 @@ function availabilityNudge(
   catalog: Catalog,
   reachable: ReadonlyMap<string, string>,
 ): TierSuggestion | null {
-  const pinned = new Set(candidates.map((c) => c.model));
-  let best: { id: string; probedId: string; cost: number } | null = null;
+  const pinned = new Set(
+    candidates.flatMap((c) => [c.model, opencodeCatalogId(c.model)]).filter(
+      (id): id is string => id != null,
+    ),
+  );
+  let best: { id: string; probedId: string; cost: number | null } | null = null;
   for (const [id, probedId] of reachable) {
     const m = catalog.models[id]!;
     if (m.class !== currentEntry.class) continue;
@@ -118,8 +125,15 @@ function availabilityNudge(
     // cheaper-rule uses, or the fast tier would get nudged toward grok-4.5
     if (currentEntry.fast && !m.fast) continue;
     if (pinned.has(id)) continue;
-    const cost = blendedCostVia(m, "opencode");
-    if (!best || cost < best.cost) best = { id, probedId, cost };
+    const cost = probedId.startsWith("opencode/")
+      ? blendedCostVia(m, "opencode")
+      : null;
+    if (
+      !best ||
+      (cost != null && (best.cost == null || cost < best.cost))
+    ) {
+      best = { id, probedId, cost };
+    }
   }
   if (!best) return null;
 
@@ -134,7 +148,7 @@ function availabilityNudge(
     model: best.id,
     cost: best.cost,
     class: currentEntry.class,
-    savingsPct: 0,
+    savingsPct: null,
     kind: "available",
     evidence: `via your ${zen ? "zen" : provider} login`,
     // Zen ids round-trip through opencodeModelId, so the pin stays canonical;
@@ -164,6 +178,7 @@ export function adviseTiers(
   servable?: Set<string> | null,
 ): TierSuggestion[] {
   const suggestions: TierSuggestion[] = [];
+  const isServable = servablePredicate(servable ?? null);
   // Catalog models reachable via the user's opencode logins, or null when
   // there is nothing to nudge with (no probe result / opencode not installed).
   const reachable =
@@ -178,7 +193,7 @@ export function adviseTiers(
         directive,
         tierName,
         available,
-        servablePredicate(servable ?? null),
+        isServable,
       );
     } catch {
       continue; // no backend for this tier at all — doctor's problem, not advise's
@@ -198,8 +213,9 @@ export function adviseTiers(
       current.backend,
       catalog,
       available,
+      isServable,
     );
-    if (successor) {
+    if (successor && currentCost != null) {
       const s = stats[successor.id];
       suggestions.push({
         tier: tierName,
@@ -229,16 +245,19 @@ export function adviseTiers(
       cost: number;
     } | null = null;
 
-    for (const [id, m] of Object.entries(catalog.models)) {
-      if (id === current.model) continue;
-      if (m.class !== currentEntry.class) continue;
-      // never trade a latency-optimized pick for a slow one
-      if (currentEntry.fast && !m.fast) continue;
-      const backend = m.backends.find((b) => available.has(b));
-      if (!backend) continue;
-      const cost = blendedCostVia(m, backend);
-      if (cost >= currentCost * 0.8) continue; // demand a real (20%+) saving
-      if (!best || cost < best.cost) best = { id, backend, cost };
+    if (currentCost != null) {
+      for (const [id, m] of Object.entries(catalog.models)) {
+        if (id === current.model) continue;
+        if (m.class !== currentEntry.class) continue;
+        // never trade a latency-optimized pick for a slow one
+        if (currentEntry.fast && !m.fast) continue;
+        for (const backend of m.backends) {
+          if (!available.has(backend) || !isServable(backend, id)) continue;
+          const cost = blendedCostVia(m, backend);
+          if (cost == null || cost >= currentCost * 0.8) continue;
+          if (!best || cost < best.cost) best = { id, backend, cost };
+        }
+      }
     }
 
     // A tier that already produced a suggestion gets no nudge — availability
@@ -268,7 +287,7 @@ export function adviseTiers(
       model: best.id,
       cost: best.cost,
       class: currentEntry.class,
-      savingsPct: Math.round((1 - best.cost / currentCost) * 100),
+      savingsPct: Math.round((1 - best.cost / currentCost!) * 100),
       kind: "cheaper",
       evidence:
         s && s.runs >= 3
@@ -284,7 +303,7 @@ export function formatSuggestions(suggestions: TierSuggestion[]): string {
   if (suggestions.length === 0) {
     return "relay advise: your tiers already use the cheapest same-class models available here";
   }
-  const lines = ["relay advise — better model, same or lower price:", ""];
+  const lines = ["relay advise — model suggestions:", ""];
   for (const s of suggestions) {
     if (s.kind === "available") {
       lines.push(
@@ -294,10 +313,10 @@ export function formatSuggestions(suggestions: TierSuggestion[]): string {
     }
     const why =
       s.kind === "supersedes"
-        ? s.savingsPct > 0
-          ? `superseded: strictly better and ~${s.savingsPct}% cheaper`
+        ? (s.savingsPct ?? 0) > 0
+          ? `superseded: strictly better and ~${s.savingsPct ?? 0}% cheaper`
           : `superseded: strictly better at the same price`
-        : `~${s.savingsPct}% cheaper, same ${s.class} class`;
+        : `~${s.savingsPct ?? 0}% cheaper, same ${s.class} class`;
     lines.push(
       `  ${s.tier.padEnd(7)} ${s.currentModel} → ${s.model} (${s.backend}) — ` +
         why +
@@ -305,7 +324,9 @@ export function formatSuggestions(suggestions: TierSuggestion[]): string {
     );
   }
   lines.push("");
-  lines.push("apply with: relay advise --apply   (prepends to your router.yaml tier fallbacks)");
+  if (suggestions.some((s) => s.kind !== "available")) {
+    lines.push("apply with: relay advise --apply   (prepends to your router.yaml tier fallbacks)");
+  }
   if (suggestions.some((s) => s.kind === "available")) {
     lines.push(
       "availability suggestions are never auto-applied — add the line to your router.yaml to opt in",
@@ -370,7 +391,7 @@ export async function runAdvise(cwd: string, apply: boolean): Promise<string> {
   // Installed ≠ servable for multi-provider CLIs. The probe is 24h-cached and
   // fail-open, so null (or no opencode) leaves advise exactly as before.
   const servable = available.has("opencode")
-    ? await servableModels("opencode")
+    ? await servableModels("opencode", { cwd })
     : null;
   const suggestions = adviseTiers(
     directive,

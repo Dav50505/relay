@@ -74,7 +74,7 @@ describe("advise availability nudges", () => {
     expect(s?.kind).toBe("available");
     expect(s?.backend).toBe("opencode");
     expect(s?.model).toBe("glm-5.2");
-    expect(s?.savingsPct).toBe(0);
+    expect(s?.savingsPct).toBeNull();
     expect(s?.evidence).toBe("via your zen login");
     expect(s?.pin).toBe("- { backend: opencode, model: glm-5.2 }");
   });
@@ -91,6 +91,8 @@ describe("advise availability nudges", () => {
     expect(s?.model).toBe("gpt-5.6-sol");
     expect(s?.evidence).toBe("via your openai login");
     expect(s?.pin).toBe("- { backend: opencode, model: openai/gpt-5.6-sol }");
+    expect(s?.cost).toBeNull();
+    expect(s?.savingsPct).toBeNull();
   });
 
   test("the cheapest reachable same-class model wins the nudge", () => {
@@ -243,6 +245,44 @@ default_lane: quickfix
     expect(suggestions[0]?.model).toBe("glm-5.2");
   });
 
+  test("cheaper suggestions exclude opencode models the probe rejected", () => {
+    const sparseCatalog = parseCatalog(`version: 1
+updated: 2026-07-26
+classes: [workhorse]
+models:
+  expensive:
+    class: workhorse
+    in: 10
+    out: 10
+    backends: [cursor]
+  glm-5.2:
+    class: workhorse
+    in: 1
+    out: 1
+    backends: [opencode]
+`);
+    const expensive = loadDirectiveFromText(`version: 1
+baseline: expensive
+tiers:
+  work:
+    - { backend: cursor, model: expensive }
+lanes:
+  - name: quickfix
+    match: { verbs: [fix] }
+    tier: work
+default_lane: quickfix
+`);
+    expect(
+      adviseTiers(
+        expensive,
+        sparseCatalog,
+        installed,
+        {},
+        new Set(["openai/unrelated"]),
+      ),
+    ).toEqual([]);
+  });
+
   test("format renders the pin and the never-auto-applied footer", () => {
     const suggestions = adviseTiers(
       directive,
@@ -258,6 +298,8 @@ default_lane: quickfix
     expect(out).toContain(
       "availability suggestions are never auto-applied — add the line to your router.yaml to opt in",
     );
+    expect(out).not.toContain("apply with:");
+    expect(out).not.toContain("same or lower price");
   });
 });
 
@@ -271,7 +313,7 @@ describe("advise --apply with availability nudges", () => {
     model: "glm-5.2",
     cost: 2.1,
     class: "workhorse",
-    savingsPct: 0,
+    savingsPct: null,
     kind: "available",
     evidence: "via your zen login",
     pin: "- { backend: opencode, model: glm-5.2 }",

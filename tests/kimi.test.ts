@@ -32,9 +32,20 @@ describe("kimi CLI spec", () => {
     expect(spec.buildEnv?.(undefined)).toEqual({});
   });
 
+  test("read-only lanes force plan mode", () => {
+    expect(
+      spec.buildArgs("audit the change", "kimi-k3", "high", "none"),
+    ).toContain("--plan");
+  });
+
   test("flags are verified against a real install", () => {
     // Verified 2026-07-25 against kimi-code 0.29.1 (`kimi --help`).
     expect(spec.verified).toBe(true);
+  });
+
+  test("login uses kimi's device-code command", () => {
+    expect(spec.loginArgs).toEqual(["login"]);
+    expect(spec.loginInteractive).toBe(false);
   });
 });
 

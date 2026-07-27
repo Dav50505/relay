@@ -3,10 +3,12 @@
 // directive, and recently reviewed. A stale table silently overcharges users
 // — so staleness FAILS the build and pings the maintainer.
 import { readFileSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
 import { KNOWN_BACKENDS } from "../src/backends/index.ts";
 import { blendedCost, parseCatalog } from "../src/catalog.ts";
 import { loadDirectiveFromText } from "../src/directive.ts";
+import { EMBEDDED_CATALOG_YAML } from "../src/embedded_defaults.ts";
 
 const MAX_AGE_DAYS = 45;
 
@@ -19,6 +21,13 @@ const catalog = parseCatalog(
 const directive = loadDirectiveFromText(
   readFileSync(join(root, "defaults", "router.yaml"), "utf8"),
 );
+
+// The compiled binary reads the embedded copy while `relay update` fetches the
+// file copy. Any semantic drift means two users can price the same run
+// differently depending on which copy won catalog resolution.
+if (!isDeepStrictEqual(catalog, parseCatalog(EMBEDDED_CATALOG_YAML))) {
+  errors.push("defaults/catalog.yaml and EMBEDDED_CATALOG_YAML differ");
+}
 
 // 1. every default-directive candidate must exist in the catalog,
 //    with a backend the catalog agrees can serve it

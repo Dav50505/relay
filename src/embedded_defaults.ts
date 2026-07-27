@@ -43,7 +43,6 @@ tiers:
     - { backend: codex, model: gpt-5.6-sol }
     - { backend: gemini, model: gemini-3.1-pro }
     - { backend: opencode, model: opus-5 }
-    - { backend: kimi, model: kimi-k3, effort: high }
   # opus-5 leads deep: ~parity with fable-5 on coding benchmarks at half the
   # price. fable-5 stays as the \`baseline\` (the counterfactual you'd otherwise
   # have run) and behind opus-5 here for anyone who wants the top of the card.
@@ -55,7 +54,6 @@ tiers:
     - { backend: codex, model: gpt-5.6-sol }
     - { backend: gemini, model: gemini-3.1-pro }
     - { backend: opencode, model: opus-5 }
-    - { backend: kimi, model: kimi-k3, effort: max }
 lanes:
   - name: status
     match: { verbs: [status, summarize, watch, check, list, read] }
@@ -104,7 +102,7 @@ bytes_per_token: 4
 `;
 
 export const EMBEDDED_CATALOG_YAML = `version: 1
-updated: "2026-07-26"
+updated: "2026-07-27"
 classes: [nano, cheap, workhorse, opus-class, frontier]
 models:
   gpt-5.6-luna:
@@ -217,6 +215,7 @@ models:
     cache_read: 0.19
     supersedes: [kimi-k2.6]
     backends: [cursor, kimi]
+    unpriced_backends: [kimi]
   kimi-k2.6:
     # open platform only (verified 2026-07-25): the managed kimi-code OAuth
     # service does not serve k2.6, so relay passes this id through — pin your
@@ -237,19 +236,21 @@ models:
     out: 8.0
     cache_read: 0.38
     backends: [kimi]
+    unpriced_backends: [kimi]
   kimi-k3:
-    # provisional opus-class (2026-07-25): Moonshot's flagship (1M ctx,
-    # released 2026-07-16), but every published number is vendor-only — the
-    # same evidence rule that demoted k2.7-code from frontier keeps this out
-    # of frontier until independent suites land. The only kimi model with
+    # workhorse pending independent evidence (2026-07-27): Moonshot's flagship
+    # (1M ctx, released 2026-07-16), but every published number is vendor-only.
+    # Vendor-only evidence cannot promote a model into the review/deep quality
+    # bar. Revisit when independent suites land. The only kimi model with
     # effort levels: low/high/max (default high), chosen per tier via
     # \`effort:\` (relay passes KIMI_MODEL_THINKING_EFFORT to the CLI).
     # Managed alias kimi-code/k3.
-    class: opus-class
+    class: workhorse
     in: 3.0
     out: 15.0
     cache_read: 0.30
     backends: [kimi]
+    unpriced_backends: [kimi]
   fable-5-high:
     # note: the claude API gates fable-5 behind data retention being enabled,
     # so \`claude --model claude-fable-5\` 400s on ZDR workspaces. relay pins the

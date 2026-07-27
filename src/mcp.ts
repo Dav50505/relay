@@ -25,7 +25,7 @@ import { listBackendChoices, runBackendsCommand } from "./backends_cmd.ts";
 import { availableBackends } from "./backends/index.ts";
 import { loadCatalog } from "./catalog.ts";
 import { loadDirective, resolveTier } from "./directive.ts";
-import { pricesShadowWarning } from "./doctor.ts";
+import { floatingHandleSuffix, pricesShadowWarning } from "./doctor.ts";
 import { findDirectivePath, hardenRelayDataDir } from "./paths.ts";
 import { refreshActivationHints } from "./activation.ts";
 import { staleServerWarning } from "./staleness.ts";
@@ -67,9 +67,11 @@ export function routingSnapshot(
     for (const tierName of Object.keys(d.tiers)) {
       try {
         const t = resolveTier(d, tierName, available, servable);
-        tiers[tierName] = `${t.backend}/${t.model}${t.fallback ? " (fallback)" : ""}`;
+        tiers[tierName] =
+          `${t.backend}/${t.model}${t.fallback ? " (fallback)" : ""}` +
+          floatingHandleSuffix(t.backend, t.model);
       } catch {
-        tiers[tierName] = "no installed backend";
+        tiers[tierName] = "no eligible backend/model";
       }
     }
     snapshot.directive = {
@@ -251,7 +253,7 @@ export async function serveMcp(): Promise<void> {
             },
             tool: {
               type: "string",
-              description: "cursor | claude | codex | gemini | grok | kimi (required for enable/disable)",
+              description: "cursor | claude | codex | gemini | grok | kimi | opencode (required for enable/disable)",
             },
           },
         },
@@ -309,7 +311,7 @@ export async function serveMcp(): Promise<void> {
           properties: {
             tool: {
               type: "string",
-              description: "cursor | claude | codex | gemini | grok | kimi",
+              description: "cursor | claude | codex | gemini | grok | kimi | opencode",
             },
           },
           required: ["tool"],
@@ -510,7 +512,12 @@ export async function serveMcp(): Promise<void> {
         const cwd = typeof args.cwd === "string" ? args.cwd : process.cwd();
         // installed ≠ servable for multi-provider CLIs (fail-open probe)
         const servable = availableBackends().has("opencode")
-          ? servablePredicate(await servableModels("opencode"))
+          ? servablePredicate(
+              await servableModels("opencode", {
+                cwd,
+                fresh: args.fresh === true,
+              }),
+            )
           : undefined;
         return {
           content: [

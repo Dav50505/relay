@@ -106,10 +106,12 @@ org hasn't approved (change anytime: `relay backends enable|disable <tool>`).
    installed wins, so a claude-only (or cursor-only) machine routes every tier with
    zero config. `relay doctor` shows exactly where each tier lands on your machine.
 2. **Route** — rules-first (verbs, file hints, walkaway); default lane if unsure
-3. **Run** — headless `cursor-agent`, `claude`, `codex`, or `opencode` in your working tree
-   (experimental adapters: `gemini`, `grok`, `kimi`). opencode routes through its built-in zen
-   provider (`opencode/<model>`); to use another provider, pin its `provider/model` id in
-   router.yaml
+3. **Run** — headless `cursor-agent`, `claude`, `codex`, `opencode`, or `kimi` in your
+   working tree (experimental adapters: `gemini`, `grok`). opencode routes through its
+   built-in zen provider (`opencode/<model>`); to use another provider, pin its
+   `provider/model` id in router.yaml. kimi notes: `kimi-k2.6` is open-platform
+   only — pin your provider alias (e.g. `moonshotai/kimi-k2.6`); `kimi-k3` takes
+   `effort: low|high|max` per tier
 4. **Verify → widen → escalate** — thin briefs that self-heal before spending frontier tokens
 5. **Receipt** — savings as a named counterfactual: what the same tokens would have cost on
    your `baseline` model. The default is `opus-5`, deliberately the same model relay's own
@@ -232,7 +234,7 @@ Things worth knowing before you rely on it:
 
 ## Roadmap
 
-- Verify gemini/grok/kimi adapter flags against real installs (codex is verified)
+- Verify gemini/grok adapter flags against real installs (codex and kimi are verified)
 - Success-rate-aware advise (already logs verify results per model)
 - Windows, npm SDK
 
@@ -262,7 +264,7 @@ reproduce it). An end-to-end eval suite (`bun run evals --hosts`,
 [latest report](./evals/report.md)) exercises the MCP surface and live
 cursor/claude/codex delegation on every preset scenario. Young:
 walkaway/worktree lane, memory (recall/remember — the transcript layer is
-best-effort by design). Not yet: Windows, npm SDK, verified gemini/grok/kimi
+best-effort by design). Not yet: Windows, npm SDK, verified gemini/grok
 adapters.
 
 ## License

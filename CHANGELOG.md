@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **k2.6, k2.7-code (+ a `fast` highspeed entry), and k3 are in the catalog, k3's effort
+  levels work per tier, and the kimi adapter is flag-verified.** There is no `--effort`
+  flag, so a tier's `effort:` now spawns the CLI with `KIMI_MODEL_THINKING_EFFORT` — k3
+  takes low/high/max (default high); on boolean-thinking models (k2.6, k2.7-code) any
+  value just means thinking on. The default router gains kimi fallbacks in every tier but
+  nano — a kimi-only machine routed nothing before. k3 lands in opus-class provisionally:
+  every published number is vendor-only, the same evidence rule that demoted k2.7-code
+  from frontier. k2.7-code's price was re-verified against models.dev (0.95/4.0, cache
+  0.19 — was 1.0/4.0 flat) and now supersedes k2.6 (same rate card, newer,
+  code-specialized)
+
+- **A handle that re-points is declared, marked, and guarded — not assumed harmless.** Relay's
+  rule is that a backend id map resolves to a pinned name, because a receipt prices a specific
+  model and must therefore price the one that ran. Kimi's managed plan leaves no pinned option
+  for its coding models: they're published as role handles, and `kimi-for-coding` resolves to
+  K2.7 Code today (models.dev, 2026-07-26) but will resolve to its successor without changing
+  name. So relay routes them and pays for it in the open — the two moving mappings are declared
+  separately from the pinned one, `relay doctor` marks any tier that resolves through one, and
+  the guard test now requires every kimi mapping to be listed as pinned or floating. The
+  previous check accepted any `kimi-code/` prefix, which a moving handle satisfies, so the guard
+  would have blessed the exact thing it exists to catch. Also corrected two model facts against
+  models.dev: k2.7-code has no thinking toggle (k2.6 does), and k3 alone has effort levels
+- **OpenCode backend (verified adapter).** An opencode-only machine routed nothing before;
+  relay now drives it — live-tested 2026-07-25 against opencode 1.18.5: headless
+  `opencode run --model provider/model`, login `opencode providers login`. The CLI requires
+  provider/model ids, so a pinned map translates relay's canonical catalog ids to the built-in
+  zen provider's ids (`opencode/glm-5.2`, `opencode/claude-opus-5`); unknown ids pass through,
+  so users can pin their own provider/model (e.g. `openai/gpt-5.6-sol`). opencode is now a
+  fallback in every default tier, and the 11 catalog models zen serves list it as a backend.
+  Zen's free models (big-pickle, `*-free`) are deliberately not cataloged — no independent
+  benchmarks (the evidence rule), and $0 would poison advise's cheaper-in-class rule; pin them
+  manually if wanted. Permission posture stays with the user's opencode config — relay never
+  passes `--auto`
+- **The catalog can price a model by who served it.** Reviewing the opencode adapter turned up
+  a receipt bug hiding inside a reasonable-sounding sentence — "zen's rate card can differ
+  slightly from direct API prices". Checked against models.dev, four of the eleven models zen
+  serves differ, and not slightly: gemini-3-flash is 0.5/3 against Google's 0.30/2.50 and
+  haiku-4.5 is 1/5 against Anthropic's 0.80/4 (relay understated those by ~40% and ~25%),
+  while sonnet-5 and gemini-3.1-pro are *cheaper* through zen (overstated by ~33% and ~20%).
+  Two of the four are candidates in the shipped default tiers, so this was not hypothetical.
+  A model has one identity but not always one rate card, so `backend_prices` in the catalog
+  names the exceptions and a receipt prices whoever actually served the run. Deliberately in
+  the catalog rather than a new file — still one price table that `relay update` can correct,
+  which is the whole reason `prices.yaml` ships empty. The baseline stays at vendor rates
+  because nobody served the counterfactual, and `relay advise` costs candidates the same way,
+  since quoting a zen-served pick at the vendor card would promise a saving the user never
+  gets (and for two of these models, overstate it)
+- **Servable-model awareness for opencode: installed ≠ servable.** A machine can have the
+  opencode CLI present with only foreign provider logins (OpenAI, Abacus, …) and no zen
+  billing — in which case every shipped opencode fallback would fail at runtime, because
+  `which opencode` says nothing about what the CLI can actually serve. Relay now probes
+  `opencode models` (24h cache, fail-open — a broken probe changes nothing), skips unservable
+  opencode candidates when routing and doctoring, and `relay advise` can suggest pinnable
+  provider ids for models your own logins do serve (`via your OpenAI login`). It never applies
+  them — routing policy stays the user's
+
+### Fixed
+
+- **The kimi backend passed catalog ids verbatim to `kimi --model`, which resolved to
+  nothing under `kimi login`.** The managed OAuth service serves `kimi-code/*` aliases
+  (`kimi-code/k3`, `kimi-code/kimi-for-coding`), not the open-platform ids the catalog
+  names — so every kimi-routed run failed on the default auth path. A pinned `kimiModelId`
+  map now translates catalog ids (verified against kimi-code 0.29.1); k2.6, which the
+  managed service does not serve, still passes through so users pin their own provider
+  alias (e.g. `moonshotai/kimi-k2.6`)
+
 ## [0.12.2] — 2026-07-25
 
 ### Fixed
@@ -149,39 +217,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SECURITY.md` scope section deliberately names the *non*-vulnerabilities too — a worker
   reading a repo's AGENTS.md, an approved verify command running, `autonomy: full` doing what
   it says — so a reporter isn't guessing where the design boundary is
-- **OpenCode backend (verified adapter).** An opencode-only machine routed nothing before;
-  relay now drives it — live-tested 2026-07-25 against opencode 1.18.5: headless
-  `opencode run --model provider/model`, login `opencode providers login`. The CLI requires
-  provider/model ids, so a pinned map translates relay's canonical catalog ids to the built-in
-  zen provider's ids (`opencode/glm-5.2`, `opencode/claude-opus-5`); unknown ids pass through,
-  so users can pin their own provider/model (e.g. `openai/gpt-5.6-sol`). opencode is now a
-  fallback in every default tier, and the 11 catalog models zen serves list it as a backend.
-  Zen's free models (big-pickle, `*-free`) are deliberately not cataloged — no independent
-  benchmarks (the evidence rule), and $0 would poison advise's cheaper-in-class rule; pin them
-  manually if wanted. Permission posture stays with the user's opencode config — relay never
-  passes `--auto`
-- **The catalog can price a model by who served it.** Reviewing the opencode adapter turned up
-  a receipt bug hiding inside a reasonable-sounding sentence — "zen's rate card can differ
-  slightly from direct API prices". Checked against models.dev, four of the eleven models zen
-  serves differ, and not slightly: gemini-3-flash is 0.5/3 against Google's 0.30/2.50 and
-  haiku-4.5 is 1/5 against Anthropic's 0.80/4 (relay understated those by ~40% and ~25%),
-  while sonnet-5 and gemini-3.1-pro are *cheaper* through zen (overstated by ~33% and ~20%).
-  Two of the four are candidates in the shipped default tiers, so this was not hypothetical.
-  A model has one identity but not always one rate card, so `backend_prices` in the catalog
-  names the exceptions and a receipt prices whoever actually served the run. Deliberately in
-  the catalog rather than a new file — still one price table that `relay update` can correct,
-  which is the whole reason `prices.yaml` ships empty. The baseline stays at vendor rates
-  because nobody served the counterfactual, and `relay advise` costs candidates the same way,
-  since quoting a zen-served pick at the vendor card would promise a saving the user never
-  gets (and for two of these models, overstate it)
-- **Servable-model awareness for opencode: installed ≠ servable.** A machine can have the
-  opencode CLI present with only foreign provider logins (OpenAI, Abacus, …) and no zen
-  billing — in which case every shipped opencode fallback would fail at runtime, because
-  `which opencode` says nothing about what the CLI can actually serve. Relay now probes
-  `opencode models` (24h cache, fail-open — a broken probe changes nothing), skips unservable
-  opencode candidates when routing and doctoring, and `relay advise` can suggest pinnable
-  provider ids for models your own logins do serve (`via your OpenAI login`). It never applies
-  them — routing policy stays the user's
 
 ### Fixed
 

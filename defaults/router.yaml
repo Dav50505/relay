@@ -19,6 +19,7 @@ tiers:
     - { backend: gemini, model: gemini-3-flash }
     - { backend: codex, model: gpt-5.6-luna }
     - { backend: opencode, model: gemini-3-flash }
+    - { backend: kimi, model: kimi-k2.7-code }
   work:
     - { backend: cursor, model: composer-2.5 }
     - { backend: cursor, model: glm-5.2 }
@@ -27,6 +28,7 @@ tiers:
     - { backend: codex, model: gpt-5.6-sol }
     - { backend: gemini, model: gemini-3.1-pro }
     - { backend: opencode, model: glm-5.2 }
+    - { backend: kimi, model: kimi-k2.7-code }
   fast:
     - { backend: cursor, model: composer-2.5 }
     - { backend: cursor, model: grok-4.5-fast }
@@ -34,12 +36,14 @@ tiers:
     - { backend: gemini, model: gemini-3-flash }
     - { backend: codex, model: gpt-5.6-luna }
     - { backend: opencode, model: gemini-3-flash }
+    - { backend: kimi, model: kimi-k2.7-code-highspeed }
   review:
     - { backend: cursor, model: opus-5, effort: high }
     - { backend: claude, model: opus-5 }
     - { backend: codex, model: gpt-5.6-sol }
     - { backend: gemini, model: gemini-3.1-pro }
     - { backend: opencode, model: opus-5 }
+    - { backend: kimi, model: kimi-k3, effort: high }
   # opus-5 leads deep: ~parity with fable-5 on coding benchmarks at half the
   # price. fable-5 stays as the `baseline` (the counterfactual you'd otherwise
   # have run) and behind opus-5 here for anyone who wants the top of the card.
@@ -51,6 +55,7 @@ tiers:
     - { backend: codex, model: gpt-5.6-sol }
     - { backend: gemini, model: gemini-3.1-pro }
     - { backend: opencode, model: opus-5 }
+    - { backend: kimi, model: kimi-k3, effort: max }
 lanes:
   - name: status
     match: { verbs: [status, summarize, watch, check, list, read] }
